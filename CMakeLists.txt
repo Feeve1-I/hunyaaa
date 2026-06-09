@@ -1,14 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
 
-# Создаем проект мода
 project(GeodeMacroBot)
 
-# Находим Geode SDK
+# Подключаем Geode SDK
+include(${CMAKE_CURRENT_SOURCE_DIR}/build/geode-deps/Geode/Geode.cmake)
 find_package(Geode REQUIRED)
 
-# Указываем, какие файлы компилировать
-add_geode_mod(
-    ${PROJECT_NAME}
-    VERSION v1.0.0
-    CONTAINS src/main.cpp
-)
+setup_geode_mod(${PROJECT_NAME})
