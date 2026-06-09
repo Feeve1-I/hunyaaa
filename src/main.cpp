@@ -218,15 +218,15 @@ public:
 class $modify(MyKeyboardDispatcher, CCKeyboardDispatcher) {
     bool dispatchKeyboardMSG(enumKeyCodes key, bool down, bool arr) {
         if (down && key == enumKeyCodes::KEY_F6) {
-            if (PlayLayer::get() && !CCDirector::sharedDirector()->getRunningScene()->getChildByID("MacroMenuLayer")) {
+            // Убираем проверку на PlayLayer, чтобы можно было открыть везде
+            if (!CCDirector::sharedDirector()->getRunningScene()->getChildByID("MacroMenuLayer")) {
                 auto menu = MacroMenuLayer::create();
                 menu->setID("MacroMenuLayer");
                 CCDirector::sharedDirector()->getRunningScene()->addChild(menu);
             }
             return true;
         }
-        // В версии 2.2 у этой функции появился 4-й аргумент (время), передаем 0.0
-        return CCKeyboardDispatcher::dispatchKeyboardMSG(key, down, arr, 0.0);
+        return CCKeyboardDispatcher::dispatchKeyboardMSG(key, down, arr);
     }
 };
 
