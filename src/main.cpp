@@ -2,17 +2,22 @@
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/CCKeyboardDispatcher.hpp>
-#include <Geode/ui/GeodeUI.hpp>
 #include <filesystem>
 
 using namespace geode::prelude;
 
-// --- Структура макроса ---
+// --- Структура макроса и чекпоинтов ---
 struct MacroAction {
     int frame;
     int button;
     bool push;
     bool isPlayer1;
+};
+
+struct CheckpointData {
+    int frame;
+    size_t playbackIndex;
+    size_t macroSize;
 };
 
 // Глобальное состояние
@@ -21,8 +26,9 @@ bool g_isRecording = false;
 bool g_isPlaying = false;
 std::vector<MacroAction> g_macroActions;
 size_t g_playbackIndex = 0;
+std::vector<CheckpointData> g_checkpoints;
 
-// Путь к папке с макросами (в папке самой игры)
+// Путь к папке с макросами (в корне игры)
 std::filesystem::path getMacrosPath() {
     return geode::dirs::getGameDir() / "macros";
 }
@@ -45,7 +51,7 @@ void saveMacro(const std::string& filename) {
         if (i < g_macroActions.size() - 1) jsonStr += ",";
         jsonStr += "\n";
     }
-    jsonStr += "\n]";
+    jsonStr += "]";
 
     auto filePath = path / (filename + ".json");
     auto res = file::writeString(filePath, jsonStr);
@@ -77,12 +83,11 @@ void loadMacro(const std::string& filename) {
     g_playbackIndex = 0;
 }
 
-// --- Плавающее и перетаскиваемое UI (Модовый стиль) ---
+// --- Плаваю��ее UI (Стиль чит-меню CS2 / ImGui) ---
 class MacroMenuLayer : public CCLayer {
 protected:
     CCLabelBMFont* m_statusLabel;
     CCLabelBMFont* m_macroNameLabel;
-    CCScale9Sprite* m_bgSprite;
     CCNode* m_windowNode;
 
     std::vector<std::string> m_macroFiles;
@@ -96,35 +101,46 @@ protected:
 
         auto winSize = CCDirector::sharedDirector()->getWinSize();
 
-        // Главный контейнер окна, который мы будем перетаскивать
+        // Главный контейнер окна
         m_windowNode = CCNode::create();
         m_windowNode->setPosition(winSize.width / 2, winSize.height / 2);
         this->addChild(m_windowNode);
 
-        // Темный минималистичный фон
-        m_bgSprite = CCScale9Sprite::create("square02b_001.png");
-        m_bgSprite->setContentSize({320.f, 200.f});
-        m_bgSprite->setColor({15, 15, 20});
-        m_bgSprite->setOpacity(230); // Почти непрозрачный для читаемости
-        m_windowNode->addChild(m_bgSprite);
+        // Внешняя рамка (тонкая, чуть светлее фона)
+        auto border = CCLayerColor::create({40, 40, 45, 255});
+        border->setContentSize({342.f, 212.f});
+        border->setPosition(-171.f, -106.f);
+        m_windowNode->addChild(border);
 
-        // Заголовок-шапка
-        auto topBar = CCScale9Sprite::create("square02b_001.png");
-        topBar->setContentSize({320.f, 30.f});
-        topBar->setPosition(0, 100.f - 15.f);
-        topBar->setColor({30, 30, 40});
+        // Темный плоский фон (в стиле ImGui)
+        auto bgFill = CCLayerColor::create({15, 15, 18, 255});
+        bgFill->setContentSize({340.f, 210.f});
+        bgFill->setPosition(-170.f, -105.f);
+        m_windowNode->addChild(bgFill);
+
+        // Шапка окна
+        auto topBar = CCLayerColor::create({25, 25, 30, 255});
+        topBar->setContentSize({340.f, 25.f});
+        topBar->setPosition(-170.f, 105.f - 25.f);
         m_windowNode->addChild(topBar);
 
-        auto title = CCLabelBMFont::create("MacroBot v1.0", "chatFont.fnt");
-        title->setPosition(-100.f, 85.f);
-        title->setScale(0.8f);
-        title->setColor({200, 200, 200});
+        // Акцентная линия (фиолетовая/синяя как в читах)
+        auto accentLine = CCLayerColor::create({120, 90, 255, 255});
+        accentLine->setContentSize({340.f, 2.f});
+        accentLine->setPosition(-170.f, 105.f - 27.f);
+        m_windowNode->addChild(accentLine);
+
+        // Заголовок
+        auto title = CCLabelBMFont::create("MACROBOT v1.0", "chatFont.fnt");
+        title->setPosition(-100.f, 92.f);
+        title->setScale(0.6f);
+        title->setColor({200, 200, 220});
         m_windowNode->addChild(title);
 
         // Статус
-        m_statusLabel = CCLabelBMFont::create("Idle", "bigFont.fnt");
-        m_statusLabel->setPosition(0, 40.f);
-        m_statusLabel->setScale(0.6f);
+        m_statusLabel = CCLabelBMFont::create("IDLE", "chatFont.fnt");
+        m_statusLabel->setPosition(0, 45.f);
+        m_statusLabel->setScale(0.8f);
         m_windowNode->addChild(m_statusLabel);
         updateStatusLabel();
 
@@ -133,76 +149,74 @@ protected:
         buttonMenu->setPosition(0, 0);
         m_windowNode->addChild(buttonMenu);
 
-        // Кнопка закрытия в шапке
-        auto closeSprite = CCSprite::createWithSpriteFrameName("GJ_closeBtn_001.png");
-        closeSprite->setScale(0.5f);
-        auto closeBtn = CCMenuItemSpriteExtra::create(
-            closeSprite, static_cast<cocos2d::CCObject*>(this), menu_selector(MacroMenuLayer::onClose)
-        );
-        closeBtn->setPosition(145.f, 85.f);
+        // Кнопка закрытия [X]
+        auto closeBtnBg = CCLayerColor::create({200, 50, 50, 0}); // прозрачный фон
+        closeBtnBg->setContentSize({25.f, 25.f});
+        auto closeLabel = CCLabelBMFont::create("X", "chatFont.fnt");
+        closeLabel->setPosition(12.5f, 12.5f);
+        closeLabel->setScale(0.6f);
+        closeBtnBg->addChild(closeLabel);
+        
+        auto closeBtn = CCMenuItemSpriteExtra::create(closeBtnBg, this, menu_selector(MacroMenuLayer::onClose));
+        closeBtn->setPosition(155.f, 92.f);
         buttonMenu->addChild(closeBtn);
 
-        // Функция для стильных кнопок
-        auto createBtn = [](const char* text, ccColor3B color) {
-            auto bg = CCScale9Sprite::create("square02_001.png");
-            bg->setContentSize({90.f, 25.f});
-            bg->setColor(color);
-            bg->setOpacity(200);
-            auto label = CCLabelBMFont::create(text, "bigFont.fnt");
-            label->setScale(0.4f);
-            label->setPosition(45.f, 12.5f);
+        // Лямбда для создания плоских кнопок
+        auto createBtn = [this](const char* text, ccColor4B color, cocos2d::SEL_MenuHandler selector) {
+            auto bg = CCLayerColor::create(color);
+            bg->setContentSize({100.f, 25.f});
+            auto label = CCLabelBMFont::create(text, "chatFont.fnt");
+            label->setPosition(50.f, 12.5f);
+            label->setScale(0.65f);
             bg->addChild(label);
-            return bg;
+            return CCMenuItemSpriteExtra::create(bg, this, selector);
         };
 
-        // Управление макросом
-        auto recordBtn = CCMenuItemSpriteExtra::create(
-            createBtn("Record", {220, 60, 60}), static_cast<cocos2d::CCObject*>(this), menu_selector(MacroMenuLayer::onRecord)
-        );
-        recordBtn->setPosition(-50.f, 5.f);
+        // Кнопки управления (Плоские цвета)
+        auto recordBtn = createBtn("RECORD", {200, 60, 60, 255}, menu_selector(MacroMenuLayer::onRecord));
+        recordBtn->setPosition(-60.f, 10.f);
         buttonMenu->addChild(recordBtn);
 
-        auto playBtn = CCMenuItemSpriteExtra::create(
-            createBtn("Play", {60, 220, 60}), static_cast<cocos2d::CCObject*>(this), menu_selector(MacroMenuLayer::onPlay)
-        );
-        playBtn->setPosition(50.f, 5.f);
+        auto playBtn = createBtn("PLAY", {60, 200, 60, 255}, menu_selector(MacroMenuLayer::onPlay));
+        playBtn->setPosition(60.f, 10.f);
         buttonMenu->addChild(playBtn);
 
-        // Выбор макросов
+        // Текст выбранного макроса
+        auto macroBg = CCLayerColor::create({25, 25, 30, 255});
+        macroBg->setContentSize({160.f, 25.f});
+        macroBg->setPosition(-80.f, -42.5f);
+        m_windowNode->addChild(macroBg);
+
         m_macroNameLabel = CCLabelBMFont::create("No macros", "chatFont.fnt");
-        m_macroNameLabel->setPosition(0, -35.f);
-        m_macroNameLabel->setScale(0.7f);
+        m_macroNameLabel->setPosition(0, -30.f);
+        m_macroNameLabel->setScale(0.6f);
         m_windowNode->addChild(m_macroNameLabel);
 
-        auto prevSprite = CCSprite::createWithSpriteFrameName("edit_leftBtn_001.png");
-        prevSprite->setScale(0.6f);
-        auto prevBtn = CCMenuItemSpriteExtra::create(prevSprite, static_cast<cocos2d::CCObject*>(this), menu_selector(MacroMenuLayer::onPrevMacro));
-        prevBtn->setPosition(-80.f, -35.f);
+        // Стрелки переключения макросов
+        auto prevBtn = createBtn("<", {40, 40, 45, 255}, menu_selector(MacroMenuLayer::onPrevMacro));
+        prevBtn->getNormalImage()->setContentSize({25.f, 25.f});
+        static_cast<CCLabelBMFont*>(prevBtn->getNormalImage()->getChildren()->objectAtIndex(0))->setPosition(12.5f, 12.5f);
+        prevBtn->setPosition(-100.f, -30.f);
         buttonMenu->addChild(prevBtn);
 
-        auto nextSprite = CCSprite::createWithSpriteFrameName("edit_rightBtn_001.png");
-        nextSprite->setScale(0.6f);
-        auto nextBtn = CCMenuItemSpriteExtra::create(nextSprite, static_cast<cocos2d::CCObject*>(this), menu_selector(MacroMenuLayer::onNextMacro));
-        nextBtn->setPosition(80.f, -35.f);
+        auto nextBtn = createBtn(">", {40, 40, 45, 255}, menu_selector(MacroMenuLayer::onNextMacro));
+        nextBtn->getNormalImage()->setContentSize({25.f, 25.f});
+        static_cast<CCLabelBMFont*>(nextBtn->getNormalImage()->getChildren()->objectAtIndex(0))->setPosition(12.5f, 12.5f);
+        nextBtn->setPosition(100.f, -30.f);
         buttonMenu->addChild(nextBtn);
 
         // Сохранение и загрузка
-        auto saveBtn = CCMenuItemSpriteExtra::create(
-            createBtn("Save", {60, 150, 255}), static_cast<cocos2d::CCObject*>(this), menu_selector(MacroMenuLayer::onSave)
-        );
-        saveBtn->setPosition(-50.f, -70.f);
+        auto saveBtn = createBtn("SAVE", {60, 120, 200, 255}, menu_selector(MacroMenuLayer::onSave));
+        saveBtn->setPosition(-60.f, -70.f);
         buttonMenu->addChild(saveBtn);
 
-        auto loadBtn = CCMenuItemSpriteExtra::create(
-            createBtn("Load", {220, 180, 60}), static_cast<cocos2d::CCObject*>(this), menu_selector(MacroMenuLayer::onLoad)
-        );
-        loadBtn->setPosition(50.f, -70.f);
+        auto loadBtn = createBtn("LOAD", {200, 150, 60, 255}, menu_selector(MacroMenuLayer::onLoad));
+        loadBtn->setPosition(60.f, -70.f);
         buttonMenu->addChild(loadBtn);
 
-        // Обновляем список макросов
         refreshMacroList();
 
-        // Настраиваем касания
+        // Обработка касаний для перетаскивания окна
         this->setTouchEnabled(true);
         this->setKeypadEnabled(true);
         this->setZOrder(105);
@@ -250,10 +264,8 @@ protected:
 
     bool ccTouchBegan(CCTouch* touch, CCEvent* event) override {
         auto pos = m_windowNode->convertToNodeSpace(touch->getLocation());
-        auto size = m_bgSprite->getContentSize();
-        auto rect = CCRect{ -size.width/2, -size.height/2, size.width, size.height };
+        auto rect = CCRect{ -170.f, -105.f, 340.f, 210.f };
         
-        // Если кликнули по окну - начинаем перетаскивание
         if (rect.containsPoint(pos)) {
             m_isDragging = true;
             m_dragOffset = m_windowNode->getPosition() - touch->getLocation();
@@ -279,10 +291,10 @@ protected:
     void updateStatusLabel() {
         if (g_isRecording) {
             m_statusLabel->setString("RECORDING");
-            m_statusLabel->setColor({255, 60, 60});
+            m_statusLabel->setColor({255, 80, 80});
         } else if (g_isPlaying) {
             m_statusLabel->setString("PLAYING");
-            m_statusLabel->setColor({60, 255, 60});
+            m_statusLabel->setColor({80, 255, 80});
         } else {
             m_statusLabel->setString("IDLE");
             m_statusLabel->setColor({180, 180, 180});
@@ -294,6 +306,8 @@ protected:
         g_isRecording = !g_isRecording;
         if (g_isRecording) {
             g_macroActions.clear();
+            g_checkpoints.clear();
+            g_currentFrame = 0;
             geode::Notification::create("Recording started", geode::NotificationIcon::Info)->show();
         } else {
             geode::Notification::create("Recording stopped", geode::NotificationIcon::Info)->show();
@@ -305,6 +319,7 @@ protected:
         if (g_isRecording) return;
         g_isPlaying = !g_isPlaying;
         if (g_isPlaying) {
+            g_playbackIndex = 0;
             geode::Notification::create("Playback started", geode::NotificationIcon::Info)->show();
         } else {
             geode::Notification::create("Playback stopped", geode::NotificationIcon::Info)->show();
@@ -353,28 +368,60 @@ class $modify(MyKeyboardDispatcher, CCKeyboardDispatcher) {
     }
 };
 
-// --- Хуки логики макроса ---
+// --- Логика макроса, кадров и чекпоинтов ---
 class $modify(MyPlayLayer, PlayLayer) {
     bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
         if (!PlayLayer::init(level, useReplay, dontCreateObjects)) return false;
         g_currentFrame = 0;
         g_playbackIndex = 0;
+        g_checkpoints.clear();
+        if (g_isRecording) g_macroActions.clear();
         return true;
     }
 
     void resetLevel() {
         PlayLayer::resetLevel();
-        g_currentFrame = 0;
-        g_playbackIndex = 0;
+        
+        // Логика Practice Mode: откатываем кадры и макрос при смерти
+        if (this->m_isPracticeMode && !g_checkpoints.empty()) {
+            auto cp = g_checkpoints.back();
+            g_currentFrame = cp.frame;
+            if (g_isRecording) g_macroActions.resize(cp.macroSize);
+            if (g_isPlaying) g_playbackIndex = cp.playbackIndex;
+        } else {
+            g_currentFrame = 0;
+            g_playbackIndex = 0;
+            g_checkpoints.clear();
+            if (g_isRecording) g_macroActions.clear();
+        }
     }
 
-    void update(float dt) {
-        PlayLayer::update(dt);
-        if (g_isRecording || g_isPlaying) g_currentFrame++;
+    void markCheckpoint() {
+        PlayLayer::markCheckpoint();
+        g_checkpoints.push_back({g_currentFrame, g_playbackIndex, g_macroActions.size()});
+    }
 
+    void removeLastCheckpoint() {
+        PlayLayer::removeLastCheckpoint();
+        if (!g_checkpoints.empty()) {
+            g_checkpoints.pop_back();
+        }
+    }
+};
+
+class $modify(MyBaseGameLayer, GJBaseGameLayer) {
+    // В GD 2.2 физика и логика кадров происходит в GJBaseGameLayer::update
+    void update(float dt) {
+        GJBaseGameLayer::update(dt);
+        
+        if (g_isRecording || g_isPlaying) {
+            g_currentFrame++;
+        }
+
+        // Воспроизведение макроса (именно здесь, в главном цикле)
         if (g_isPlaying) {
             while (g_playbackIndex < g_macroActions.size() && 
-                   g_macroActions[g_playbackIndex].frame == g_currentFrame) {
+                   g_macroActions[g_playbackIndex].frame <= g_currentFrame) {
                 auto action = g_macroActions[g_playbackIndex];
                 this->handleButton(action.push, action.button, action.isPlayer1);
                 g_playbackIndex++;
@@ -385,9 +432,7 @@ class $modify(MyPlayLayer, PlayLayer) {
             }
         }
     }
-};
 
-class $modify(MyBaseGameLayer, GJBaseGameLayer) {
     void handleButton(bool push, int button, bool isPlayer1) {
         GJBaseGameLayer::handleButton(push, button, isPlayer1);
         if (g_isRecording && !g_isPlaying) {
