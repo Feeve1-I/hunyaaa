@@ -215,7 +215,7 @@ public:
 };
 
 // --- Хук на F6 для открытия меню ---
-class $modify(CCKeyboardDispatcher) {
+class $modify(MyKeyboardDispatcher, CCKeyboardDispatcher) {
     bool dispatchKeyboardMSG(enumKeyCodes key, bool down, bool arr) {
         if (down && key == enumKeyCodes::KEY_F6) {
             if (PlayLayer::get() && !CCDirector::sharedDirector()->getRunningScene()->getChildByID("MacroMenuLayer")) {
@@ -225,7 +225,8 @@ class $modify(CCKeyboardDispatcher) {
             }
             return true;
         }
-        return CCKeyboardDispatcher::dispatchKeyboardMSG(key, down, arr);
+        // В версии 2.2 у этой функции появился 4-й аргумент (время), передаем 0.0
+        return CCKeyboardDispatcher::dispatchKeyboardMSG(key, down, arr, 0.0);
     }
 };
 
