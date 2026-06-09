@@ -401,8 +401,8 @@ class $modify(MyPlayLayer, PlayLayer) {
         g_checkpoints.push_back({g_currentFrame, g_playbackIndex, g_macroActions.size()});
     }
 
-    void removeLastCheckpoint() {
-        PlayLayer::removeLastCheckpoint();
+    void removeCheckpoint(bool first) {
+        PlayLayer::removeCheckpoint(first);
         if (!g_checkpoints.empty()) {
             g_checkpoints.pop_back();
         }
