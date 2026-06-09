@@ -216,9 +216,9 @@ public:
 
 // --- Хук на F6 для открытия меню ---
 class $modify(MyKeyboardDispatcher, CCKeyboardDispatcher) {
-    bool dispatchKeyboardMSG(enumKeyCodes key, bool down, bool arr) {
+    bool dispatchKeyboardMSG(enumKeyCodes key, bool down, bool arr, double time) {
         if (down && key == enumKeyCodes::KEY_F6) {
-            // Убираем проверку на PlayLayer, чтобы можно было открыть везде
+            // Теперь меню можно открыть не только в уровне, но и в главном меню
             if (!CCDirector::sharedDirector()->getRunningScene()->getChildByID("MacroMenuLayer")) {
                 auto menu = MacroMenuLayer::create();
                 menu->setID("MacroMenuLayer");
@@ -226,7 +226,7 @@ class $modify(MyKeyboardDispatcher, CCKeyboardDispatcher) {
             }
             return true;
         }
-        return CCKeyboardDispatcher::dispatchKeyboardMSG(key, down, arr);
+        return CCKeyboardDispatcher::dispatchKeyboardMSG(key, down, arr, time);
     }
 };
 
