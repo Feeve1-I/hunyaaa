@@ -1,7 +1,7 @@
 {
-    "geode": "5.7.1",
+    "geode": "3.7.4",
     "id": "hueta.macro_bot",
-    "version": "1.0.0",
+    "version": "v1.0.0",
     "name": "Custom MacroBot",
     "developer": "gUNDONE",
     "description": "Frame-perfect macro recorder and player."
