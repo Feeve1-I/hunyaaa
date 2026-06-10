@@ -410,15 +410,10 @@ class $modify(MyPlayLayer, PlayLayer) {
 
 class $modify(MyBaseGameLayer, GJBaseGameLayer) {
     void update(float dt) {
-        GJBaseGameLayer::update(dt);
-        
-        if (g_isRecording || g_isPlaying) {
-            g_currentFrame++;
-        }
-
+        // Воспроизводим клики СТРОГО ДО просчета физики кадра для Frame-Perfect точности
         if (g_isPlaying) {
             while (g_playbackIndex < g_macroActions.size() && 
-                   g_macroActions[g_playbackIndex].frame <= g_currentFrame) {
+                   g_macroActions[g_playbackIndex].frame == g_currentFrame) {
                 auto action = g_macroActions[g_playbackIndex];
                 this->handleButton(action.push, action.button, action.isPlayer1);
                 g_playbackIndex++;
@@ -427,12 +422,20 @@ class $modify(MyBaseGameLayer, GJBaseGameLayer) {
                 g_isPlaying = false;
             }
         }
+
+        GJBaseGameLayer::update(dt);
+        
+        // Увеличиваем счетчик кадров ПОСЛЕ обработки текущего кадра
+        if (g_isRecording || g_isPlaying) {
+            g_currentFrame++;
+        }
     }
 
     void handleButton(bool push, int button, bool isPlayer1) {
-        GJBaseGameLayer::handleButton(push, button, isPlayer1);
+        // Записываем клик в тот момент, когда он прои��ошел, привязывая к текущему кадру
         if (g_isRecording && !g_isPlaying) {
             recordClick(g_currentFrame, button, push, isPlayer1);
         }
+        GJBaseGameLayer::handleButton(push, button, isPlayer1);
     }
 };
